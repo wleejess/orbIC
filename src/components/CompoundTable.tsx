@@ -1,0 +1,145 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useMemo } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Compound } from '../types';
+import { SmilesRenderer } from './SmilesRenderer';
+import { Search, Filter } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { getMatchingAtoms } from '../lib/chemistry';
+
+interface CompoundTableProps {
+  compounds: Compound[];
+  onSelect: (compound: Compound) => void;
+  smartsHighlight?: string;
+  thresholds?: { property: string; min?: number; max?: number; color: string }[];
+}
+
+export const CompoundTable: React.FC<CompoundTableProps> = ({ 
+  compounds, 
+  onSelect,
+  smartsHighlight = '',
+  thresholds = []
+}) => {
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    return compounds.filter(c => {
+      if (!c) return false;
+      return (
+        c.name?.toLowerCase().includes(search.toLowerCase()) ||
+        c.smiles.toLowerCase().includes(search.toLowerCase()) ||
+        Object.values(c.properties).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
+      );
+    });
+  }, [compounds, search]);
+
+  const propertyKeys = useMemo(() => {
+    const keys = new Set<string>();
+    compounds.forEach(c => {
+      if (c && c.properties) {
+        Object.keys(c.properties).forEach(k => keys.add(k));
+      }
+    });
+    
+    // Prioritize key columns
+    const priority = ['pEC50', 'IC50', 'EC50', 'Formula', 'MW', 'LogP', 'PSA'];
+    const sortedKeys = Array.from(keys).sort((a, b) => {
+      const aIdx = priority.indexOf(a);
+      const bIdx = priority.indexOf(b);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return sortedKeys.slice(0, 6); // Show up to 6 columns
+  }, [compounds]);
+
+  return (
+    <div className="flex flex-col h-full gap-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+        <Input
+          placeholder="Search compounds, properties, SMILES..."
+          className="pl-10 bg-bg-surface border-border-sleek text-text-main focus-visible:ring-accent-primary"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+      
+      <div className="flex-1 border border-border-sleek rounded-md overflow-hidden bg-bg-surface">
+        <ScrollArea className="h-full">
+          <Table>
+            <TableHeader className="sticky top-0 bg-bg-deep z-10">
+              <TableRow className="border-border-sleek hover:bg-transparent">
+                <TableHead className="w-[100px] text-text-muted font-bold uppercase text-[10px]">Structure</TableHead>
+                <TableHead className="text-text-muted font-bold uppercase text-[10px]">Name</TableHead>
+                {propertyKeys.map(k => (
+                  <TableHead key={k} className="text-text-muted font-bold uppercase text-[10px]">{k}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((c) => {
+                const highlightAtoms = smartsHighlight.trim() 
+                  ? getMatchingAtoms(c.smiles, smartsHighlight) 
+                  : [];
+
+                return (
+                  <TableRow 
+                    key={c.id} 
+                    className={`cursor-pointer border-border-sleek transition-colors ${
+                      thresholds.length > 0 && thresholds.every(t => {
+                        const val = Number(c.properties[t.property]);
+                        return !isNaN(val) && (t.min === undefined || val >= t.min) && (t.max === undefined || val <= t.max);
+                      }) ? 'bg-success-sleek/10 hover:bg-success-sleek/20' : 'hover:bg-bg-deep'
+                    }`}
+                    onClick={() => onSelect(c)}
+                  >
+                    <TableCell className="bg-white/5">
+                      <div className="bg-white rounded p-1">
+                        <SmilesRenderer 
+                          smiles={c.smiles} 
+                          width={80} 
+                          height={60} 
+                          highlightAtoms={highlightAtoms}
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-medium text-text-main">{c.name}</TableCell>
+                    {propertyKeys.map(k => (
+                      <TableCell key={k} className="text-xs text-accent-primary font-mono">
+                        {typeof c.properties[k] === 'number' 
+                          ? (c.properties[k] as number).toFixed(2) 
+                          : String(c.properties[k] || '-')}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={propertyKeys.length + 2} className="h-24 text-center text-text-muted">
+                    No compounds found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+};

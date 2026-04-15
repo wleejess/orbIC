@@ -1,0 +1,6 @@
+{
+  "name": "orbIC",
+  "description": "orbIC: A chemical space exploration tool for chemists to analyze SAR, identify novel compounds, and visualize chemical cores using TMAP-style constellation plots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

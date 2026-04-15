@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Compound } from '../types';
 import { processSmiles } from '../lib/chemistry';
-import { loadPxrDataset } from '../services/datasetService';
+import { loadLocalDataset, loadPxrDataset } from '../services/datasetService';
 import { Upload, FileJson, FileSpreadsheet, Plus, Database, Loader2 } from 'lucide-react';
 
 interface ImportDialogProps {
@@ -30,6 +30,19 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({ onImport }) => {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const handleLoadLocal = async (filename: string) => {
+    setLoading(true);
+    try {
+      const data = await loadLocalDataset(filename);
+      onImport(data);
+      setOpen(false);
+    } catch (err) {
+      console.error(`Failed to load local dataset: ${filename}`, err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLoadPxr = async () => {
     setLoading(true);
     try {
@@ -37,7 +50,7 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({ onImport }) => {
       onImport(data);
       setOpen(false);
     } catch (err) {
-      console.error('Failed to load PXR dataset', err);
+      console.error('Failed to load PXR dataset (may fail due to CORS on static hosts)', err);
     } finally {
       setLoading(false);
     }
@@ -148,22 +161,52 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({ onImport }) => {
             </p>
           </div>
 
-          <div className="pt-4 border-t border-border-sleek">
+          <div className="pt-4 border-t border-border-sleek space-y-2">
             <Label className="text-[10px] uppercase tracking-widest text-text-muted font-bold block mb-3">
-              Pre-loaded Datasets
+              Bundled Sample Datasets
             </Label>
-            <Button 
-              variant="outline" 
-              className="w-full gap-2 bg-bg-deep border-accent-secondary/50 text-accent-secondary hover:bg-accent-secondary hover:text-bg-deep transition-all"
-              onClick={handleLoadPxr}
+            <Button
+              variant="outline"
+              className="w-full gap-2 bg-bg-deep border-accent-primary/50 text-accent-primary hover:bg-accent-primary hover:text-bg-deep transition-all"
+              onClick={() => handleLoadLocal('demo_compounds.csv')}
               disabled={loading}
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-              Load PXR Challenge Dataset
+              Demo Pharmacology Set (8 cpds)
             </Button>
-            <p className="text-[9px] text-text-muted mt-2 font-mono">
-              Source: openadmet/pxr-challenge-train-test (Hugging Face)
+            <p className="text-[9px] text-text-muted font-mono pl-1">
+              Mixed-target reference set. Sources: ChEMBL (CC0), cited per compound.
             </p>
+            <Button
+              variant="outline"
+              className="w-full gap-2 bg-bg-deep border-accent-secondary/50 text-accent-secondary hover:bg-accent-secondary hover:text-bg-deep transition-all"
+              onClick={() => handleLoadLocal('cox_sar_series.csv')}
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+              COX Inhibitor SAR Series (10 cpds)
+            </Button>
+            <p className="text-[9px] text-text-muted font-mono pl-1">
+              Same-target IC50s vs ovine COX-1. Source: Mitchell et al. PNAS 1993.
+            </p>
+
+            <div className="pt-3 border-t border-border-sleek/50">
+              <Label className="text-[10px] uppercase tracking-widest text-text-muted font-bold block mb-2">
+                Remote Datasets
+              </Label>
+              <Button
+                variant="outline"
+                className="w-full gap-2 bg-bg-deep border-border-sleek text-text-muted hover:bg-bg-deep/80 transition-all"
+                onClick={handleLoadPxr}
+                disabled={loading}
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                PXR Challenge Dataset (Hugging Face)
+              </Button>
+              <p className="text-[9px] text-text-muted mt-1 font-mono pl-1">
+                openadmet/pxr-challenge-train-test · May fail on static hosts (CORS).
+              </p>
+            </div>
           </div>
         </div>
         <DialogFooter>

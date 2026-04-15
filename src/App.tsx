@@ -70,22 +70,34 @@ export default function App() {
   const [thresholds, setThresholds] = useState<{ property: string; min?: number; max?: number; color: string }[]>([]);
   const [savedCompounds, setSavedCompounds] = useState<Compound[]>([]);
   const [search, setSearch] = useState('');
-  
+  const [usingFallbackData, setUsingFallbackData] = useState(false);
+
   // Advanced Search State
   const [smartsQuery, setSmartsQuery] = useState('');
   const [similarityQuery, setSimilarityQuery] = useState('');
   const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
   const [copiedSmiles, setCopiedSmiles] = useState<string | null>(null);
 
-  // Initialize with PXR dataset by default
+  // Load bundled local dataset on startup — no external fetch, works on any static host.
+  // Falls back to the hardcoded SAMPLE_COMPOUNDS if the file is somehow unavailable.
   useEffect(() => {
     const loadDefault = async () => {
       try {
-        const { loadPxrDataset } = await import('./services/datasetService');
-        const pxrData = await loadPxrDataset();
-        setCompounds(pxrData);
+        const { loadLocalDataset } = await import('./services/datasetService');
+        const data = await loadLocalDataset('demo_compounds.csv');
+        setCompounds(data);
       } catch (e) {
-        console.error('Failed to load default dataset:', e);
+        console.error('Failed to load local dataset, using built-in sample data:', e);
+        const fallback = SAMPLE_COMPOUNDS.map((s, i) => {
+          try {
+            const { scaffold, fingerprint, properties } = processSmiles(s.smiles);
+            return { id: `sample-${i}`, name: s.name, smiles: s.smiles, properties, scaffoldSmiles: scaffold, fingerprint };
+          } catch {
+            return { id: `sample-${i}`, name: s.name, smiles: s.smiles, properties: {}, scaffoldSmiles: s.smiles, fingerprint: [] };
+          }
+        });
+        setCompounds(fallback);
+        setUsingFallbackData(true);
       }
     };
     loadDefault();
@@ -179,7 +191,15 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-screen bg-bg-deep text-text-main font-sans overflow-hidden grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[280px_1fr_260px] grid-rows-[64px_1fr_32px]">
+    <div className="h-screen w-screen bg-bg-deep text-text-main font-sans overflow-hidden flex flex-col">
+      {/* Fallback data banner */}
+      {usingFallbackData && (
+        <div className="bg-yellow-900/40 border-b border-yellow-600/40 px-6 py-1.5 flex items-center gap-2 text-[11px] text-yellow-400 font-mono z-50 shrink-0">
+          <Info className="w-3 h-3 shrink-0" />
+          Could not fetch the PXR dataset (network or CORS error). Showing built-in sample compounds instead.
+        </div>
+      )}
+    <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[280px_1fr_260px] grid-rows-[64px_1fr_32px]">
       {/* Header */}
       <header className="col-span-full bg-bg-surface border-b border-border-sleek px-6 flex items-center justify-between z-50">
         <div className="flex items-center gap-3">
@@ -460,6 +480,7 @@ export default function App() {
         </div>
         <div>CHEMNEXUS ANALYTICS ENGINE v2.0</div>
       </footer>
+    </div>
     </div>
   );
 }

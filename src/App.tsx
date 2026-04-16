@@ -10,6 +10,7 @@ import { TMap } from './components/TMap';
 import { CompoundTable } from './components/CompoundTable';
 import { ImportDialog } from './components/ImportDialog';
 import { SmilesRenderer } from './components/SmilesRenderer';
+import { AttributionsDialog } from './components/AttributionsDialog';
 import { 
   Card, 
   CardContent, 
@@ -149,8 +150,22 @@ export default function App() {
     });
   }, [compounds, search, smartsQuery, similarityQuery, similarityThreshold, thresholds]);
 
-  const handleImport = (newCompounds: Compound[]) => {
-    setCompounds(prev => [...prev, ...newCompounds]);
+  const handleImport = (newCompounds: Compound[], filterColumns: string[]) => {
+    setCompounds(prev => {
+      const merged = [...prev, ...newCompounds];
+      // Build thresholds from the user-selected columns using the merged dataset for ranges
+      if (filterColumns.length > 0) {
+        const newThresholds = filterColumns.map(prop => {
+          const values = merged.map(c => Number(c.properties[prop])).filter(v => !isNaN(v) && isFinite(v));
+          const min = values.length > 0 ? Math.floor(Math.min(...values) * 10) / 10 : 0;
+          const max = values.length > 0 ? Math.ceil(Math.max(...values) * 10) / 10 : 100;
+          return { property: prop, min, max, color: '#22c55e' };
+        });
+        // setThresholds inside a functional update isn't ideal but executes synchronously here
+        setTimeout(() => setThresholds(newThresholds), 0);
+      }
+      return merged;
+    });
   };
 
   const getPropertyRange = (prop: string) => {
@@ -478,7 +493,10 @@ export default function App() {
           <span>Viewing: <strong>{compounds.length} compounds</strong></span>
           <span className="border-l border-border-sleek pl-4">Layout: TMAP (MST)</span>
         </div>
-        <div>CHEMNEXUS ANALYTICS ENGINE v2.0</div>
+        <div className="flex items-center gap-4">
+          <AttributionsDialog />
+          <span className="border-l border-border-sleek pl-4">ORBIC v2.0</span>
+        </div>
       </footer>
     </div>
     </div>

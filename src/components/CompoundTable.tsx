@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Table,
   TableBody,
@@ -15,9 +16,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Compound } from '../types';
 import { SmilesRenderer } from './SmilesRenderer';
-import { Search, Filter } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Search } from 'lucide-react';
 import { getMatchingAtoms } from '../lib/chemistry';
+
+// Row height must be fixed for the virtualiser to work correctly.
+// Keep in sync with the actual rendered row height (structure cell is 60px + padding = 76px).
+const ROW_HEIGHT = 76;
 
 interface CompoundTableProps {
   compounds: Compound[];
@@ -26,13 +30,14 @@ interface CompoundTableProps {
   thresholds?: { property: string; min?: number; max?: number; color: string }[];
 }
 
-export const CompoundTable: React.FC<CompoundTableProps> = ({ 
-  compounds, 
+export const CompoundTable: React.FC<CompoundTableProps> = ({
+  compounds,
   onSelect,
   smartsHighlight = '',
-  thresholds = []
+  thresholds = [],
 }) => {
   const [search, setSearch] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     return compounds.filter(c => {
@@ -52,8 +57,7 @@ export const CompoundTable: React.FC<CompoundTableProps> = ({
         Object.keys(c.properties).forEach(k => keys.add(k));
       }
     });
-    
-    // Prioritize key columns
+
     const priority = ['pEC50', 'IC50', 'EC50', 'Formula', 'MW', 'LogP', 'PSA'];
     const sortedKeys = Array.from(keys).sort((a, b) => {
       const aIdx = priority.indexOf(a);
@@ -64,8 +68,18 @@ export const CompoundTable: React.FC<CompoundTableProps> = ({
       return a.localeCompare(b);
     });
 
-    return sortedKeys.slice(0, 6); // Show up to 6 columns
+    return sortedKeys.slice(0, 6);
   }, [compounds]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalHeight = rowVirtualizer.getTotalSize();
 
   return (
     <div className="flex flex-col h-full gap-4">
@@ -78,9 +92,10 @@ export const CompoundTable: React.FC<CompoundTableProps> = ({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      
+
       <div className="flex-1 border border-border-sleek rounded-md overflow-hidden bg-bg-surface">
-        <ScrollArea className="h-full">
+        {/* Scrollable container passed to the virtualiser */}
+        <div ref={scrollRef} className="h-full overflow-auto">
           <Table>
             <TableHeader className="sticky top-0 bg-bg-deep z-10">
               <TableRow className="border-border-sleek hover:bg-transparent">
@@ -92,53 +107,80 @@ export const CompoundTable: React.FC<CompoundTableProps> = ({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => {
-                const highlightAtoms = smartsHighlight.trim() 
-                  ? getMatchingAtoms(c.smiles, smartsHighlight) 
-                  : [];
-
-                return (
-                  <TableRow 
-                    key={c.id} 
-                    className={`cursor-pointer border-border-sleek transition-colors ${
-                      thresholds.length > 0 && thresholds.every(t => {
-                        const val = Number(c.properties[t.property]);
-                        return !isNaN(val) && (t.min === undefined || val >= t.min) && (t.max === undefined || val <= t.max);
-                      }) ? 'bg-success-sleek/10 hover:bg-success-sleek/20' : 'hover:bg-bg-deep'
-                    }`}
-                    onClick={() => onSelect(c)}
-                  >
-                    <TableCell className="bg-white/5">
-                      <div className="bg-white rounded p-1">
-                        <SmilesRenderer 
-                          smiles={c.smiles} 
-                          width={80} 
-                          height={60} 
-                          highlightAtoms={highlightAtoms}
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium text-text-main">{c.name}</TableCell>
-                    {propertyKeys.map(k => (
-                      <TableCell key={k} className="text-xs text-accent-primary font-mono">
-                        {typeof c.properties[k] === 'number' 
-                          ? (c.properties[k] as number).toFixed(2) 
-                          : String(c.properties[k] || '-')}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })}
-              {filtered.length === 0 && (
+              {filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={propertyKeys.length + 2} className="h-24 text-center text-text-muted">
                     No compounds found.
                   </TableCell>
                 </TableRow>
+              ) : (
+                <>
+                  {/* Top spacer */}
+                  {virtualRows.length > 0 && virtualRows[0].start > 0 && (
+                    <TableRow style={{ height: virtualRows[0].start }}>
+                      <TableCell colSpan={propertyKeys.length + 2} className="p-0 border-0" />
+                    </TableRow>
+                  )}
+
+                  {virtualRows.map(virtualRow => {
+                    const c = filtered[virtualRow.index];
+                    const highlightAtoms = smartsHighlight.trim()
+                      ? getMatchingAtoms(c.smiles, smartsHighlight)
+                      : [];
+                    const meetsThresholds =
+                      thresholds.length > 0 &&
+                      thresholds.every(t => {
+                        const val = Number(c.properties[t.property]);
+                        return !isNaN(val) && (t.min === undefined || val >= t.min) && (t.max === undefined || val <= t.max);
+                      });
+
+                    return (
+                      <TableRow
+                        key={c.id}
+                        data-index={virtualRow.index}
+                        style={{ height: ROW_HEIGHT }}
+                        className={`cursor-pointer border-border-sleek transition-colors ${
+                          meetsThresholds ? 'bg-success-sleek/10 hover:bg-success-sleek/20' : 'hover:bg-bg-deep'
+                        }`}
+                        onClick={() => onSelect(c)}
+                      >
+                        <TableCell className="bg-white/5">
+                          <div className="bg-white rounded p-1">
+                            <SmilesRenderer
+                              smiles={c.smiles}
+                              width={80}
+                              height={60}
+                              highlightAtoms={highlightAtoms}
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium text-text-main">{c.name}</TableCell>
+                        {propertyKeys.map(k => (
+                          <TableCell key={k} className="text-xs text-accent-primary font-mono">
+                            {typeof c.properties[k] === 'number'
+                              ? (c.properties[k] as number).toFixed(2)
+                              : String(c.properties[k] || '-')}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+
+                  {/* Bottom spacer */}
+                  {virtualRows.length > 0 && (() => {
+                    const lastRow = virtualRows[virtualRows.length - 1];
+                    const bottomSpace = totalHeight - lastRow.end;
+                    return bottomSpace > 0 ? (
+                      <TableRow style={{ height: bottomSpace }}>
+                        <TableCell colSpan={propertyKeys.length + 2} className="p-0 border-0" />
+                      </TableRow>
+                    ) : null;
+                  })()}
+                </>
               )}
             </TableBody>
           </Table>
-        </ScrollArea>
+        </div>
       </div>
     </div>
   );

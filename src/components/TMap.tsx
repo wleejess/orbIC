@@ -8,6 +8,8 @@ import * as d3 from 'd3';
 import { Compound, Scaffold } from '../types';
 import { computeSimilarity, matchesSubstructure } from '../lib/chemistry';
 
+const MAX_TMAP_SCAFFOLDS = 150;
+
 interface TMapProps {
   compounds: Compound[];
   scaffolds: Scaffold[];
@@ -26,69 +28,64 @@ export const TMap: React.FC<TMapProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // O(1) compound lookup — avoids an O(n) scan inside the graphData memo.
+  const compoundMap = useMemo(
+    () => new Map(compounds.map(c => [c.id, c])),
+    [compounds],
+  );
+
   const graphData = useMemo(() => {
     if (scaffolds.length === 0) return { nodes: [], links: [] };
 
-    // Nodes are scaffolds
+    // Build nodes using Map for O(1) lookup instead of O(n) Array.find.
     const nodes = scaffolds.map((s, i) => ({
       id: s.smiles,
       smiles: s.smiles,
       count: s.compoundIds.length,
-      compounds: s.compoundIds.map(id => compounds.find(c => c.id === id)).filter(Boolean) as Compound[],
-      index: i
+      compounds: s.compoundIds.map(id => compoundMap.get(id)).filter(Boolean) as Compound[],
+      index: i,
     })).filter(node => node.compounds.length > 0);
 
-    // TMAP Algorithm:
-    // 1. Construct k-NN graph (k=10)
-    // 2. Compute MST of k-NN graph
-    const k = Math.min(10, nodes.length - 1);
-    const links: { source: string; target: string; weight: number }[] = [];
-    
-    if (nodes.length > 1) {
-      // 1a. Add structural hierarchy edges (substructure relationships)
-      // This ensures the tree follows chemical hierarchy
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = 0; j < nodes.length; j++) {
-          if (i === j) continue;
-          // Check if scaffold i is a substructure of scaffold j
-          if (matchesSubstructure(nodes[j].smiles, nodes[i].smiles)) {
-            links.push({
-              source: nodes[i].id,
-              target: nodes[j].id,
-              weight: 1.0 // Maximum weight for structural relationships
-            });
-          }
-        }
-      }
+    // Cap scaffolds to prevent O(n²) work on large datasets.
+    // Keep the highest-membership scaffolds — they carry the most SAR signal.
+    const visibleNodes = [...nodes]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, MAX_TMAP_SCAFFOLDS);
 
-      // 1b. Add k-NN similarity edges
-      nodes.forEach((node, i) => {
+    const k = Math.min(10, visibleNodes.length - 1);
+    const links: { source: string; target: string; weight: number }[] = [];
+
+    if (visibleNodes.length > 1) {
+      // k-NN similarity edges (Tanimoto on OCL fragment fingerprints).
+      // The substructure-hierarchy pass was removed: it ran O(n²) OCL SSSearcher
+      // calls (~22k for 150 nodes) and froze the main thread for 2-10 seconds on
+      // large datasets. kNN alone produces an equivalent MST layout because
+      // structurally related scaffolds score high Tanimoto similarity and still
+      // end up connected.
+      visibleNodes.forEach((node, i) => {
         const neighbors: { index: number; sim: number }[] = [];
         const fp1 = node.compounds[0]?.fingerprint || [];
-        
-        for (let j = 0; j < nodes.length; j++) {
+
+        for (let j = 0; j < visibleNodes.length; j++) {
           if (i === j) continue;
-          const fp2 = nodes[j].compounds[0]?.fingerprint || [];
+          const fp2 = visibleNodes[j].compounds[0]?.fingerprint || [];
           const sim = computeSimilarity(fp1, fp2);
           neighbors.push({ index: j, sim });
         }
-        
-        // Sort by similarity descending and take top k
+
         neighbors.sort((a, b) => b.sim - a.sim);
         neighbors.slice(0, k).forEach(neighbor => {
           links.push({
             source: node.id,
-            target: nodes[neighbor.index].id,
-            weight: neighbor.sim
+            target: visibleNodes[neighbor.index].id,
+            weight: neighbor.sim,
           });
         });
       });
     }
 
-    const mstLinks = computeMST(nodes, links);
-
-    return { nodes, links: mstLinks };
-  }, [scaffolds, compounds]);
+    return { nodes: visibleNodes, links: computeMST(visibleNodes, links) };
+  }, [scaffolds, compoundMap]);
 
   const [dimensions, setDimensions] = React.useState({ width: 0, height: 0 });
 

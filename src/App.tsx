@@ -39,12 +39,11 @@ import {
 import { 
   Slider 
 } from '@/components/ui/slider';
-import { 
-  Beaker, 
-  LayoutDashboard, 
-  Network, 
-  Table as TableIcon, 
-  Target, 
+import {
+  Beaker,
+  LayoutDashboard,
+  Network,
+  Target,
   Info,
   Plus,
   Trash2,
@@ -106,6 +105,16 @@ export default function App() {
 
   const scaffolds = useMemo(() => groupIntoScaffolds(compounds), [compounds]);
 
+  // Compute the similarity query fingerprint once, not once-per-compound.
+  const similarityQueryFp = useMemo(() => {
+    if (!similarityQuery.trim()) return null;
+    try {
+      return processSmiles(similarityQuery).fingerprint;
+    } catch {
+      return null;
+    }
+  }, [similarityQuery]);
+
   const filteredCompounds = useMemo(() => {
     return compounds.filter(c => {
       if (!c) return false;
@@ -113,7 +122,7 @@ export default function App() {
       // Text Search (Name, SMILES, Formula)
       if (search.trim()) {
         const query = search.toLowerCase();
-        const matches = 
+        const matches =
           c.name.toLowerCase().includes(query) ||
           c.smiles.toLowerCase().includes(query) ||
           (c.properties['Formula'] && String(c.properties['Formula']).toLowerCase().includes(query));
@@ -125,22 +134,17 @@ export default function App() {
         if (!matchesSubstructure(c.smiles, smartsQuery)) return false;
       }
 
-      // Similarity Search
-      if (similarityQuery.trim()) {
-        try {
-          const queryFp = processSmiles(similarityQuery).fingerprint;
-          const sim = computeSimilarity(c.fingerprint || [], queryFp);
-          if (sim < similarityThreshold) return false;
-        } catch (e) {
-          return false;
-        }
+      // Similarity Search — queryFp computed once above, not once per compound
+      if (similarityQueryFp) {
+        const sim = computeSimilarity(c.fingerprint || [], similarityQueryFp);
+        if (sim < similarityThreshold) return false;
       }
 
       // Property Thresholds
       if (thresholds.length > 0) {
         const meetsThresholds = thresholds.every(t => {
           const val = Number(c.properties[t.property]);
-          if (isNaN(val)) return true; // If property missing, don't filter out? Or do?
+          if (isNaN(val)) return true;
           return (t.min === undefined || val >= t.min) && (t.max === undefined || val <= t.max);
         });
         if (!meetsThresholds) return false;
@@ -148,7 +152,7 @@ export default function App() {
 
       return true;
     });
-  }, [compounds, search, smartsQuery, similarityQuery, similarityThreshold, thresholds]);
+  }, [compounds, search, smartsQuery, similarityQueryFp, similarityThreshold, thresholds]);
 
   const handleImport = (newCompounds: Compound[], filterColumns: string[]) => {
     setCompounds(prev => {
@@ -358,10 +362,6 @@ export default function App() {
                 <Network className="w-3 h-3" />
                 TMAP View
               </TabsTrigger>
-              <TabsTrigger value="table" className="data-[state=active]:bg-accent-primary data-[state=active]:text-bg-deep gap-2 text-xs">
-                <TableIcon className="w-3 h-3" />
-                Data Grid
-              </TabsTrigger>
               <TabsTrigger value="saved" className="data-[state=active]:bg-accent-primary data-[state=active]:text-bg-deep gap-2 text-xs">
                 <Target className="w-3 h-3" />
                 Saved ({savedCompounds.length})
@@ -369,26 +369,17 @@ export default function App() {
             </TabsList>
           </div>
 
-          <TabsContent value="tmap" className="flex-1 m-0 h-full">
-            <TMap 
-              compounds={compounds} 
-              scaffolds={scaffolds} 
+          <TabsContent value="tmap" className="flex-1 m-0 h-full" keepMounted>
+            <TMap
+              compounds={compounds}
+              scaffolds={scaffolds}
               onSelectCompound={setSelectedCompound}
               thresholds={thresholds}
               smartsHighlight={smartsQuery}
             />
           </TabsContent>
 
-          <TabsContent value="table" className="flex-1 m-0 p-6 bg-bg-deep">
-            <CompoundTable 
-              compounds={filteredCompounds} 
-              onSelect={setSelectedCompound} 
-              smartsHighlight={smartsQuery}
-              thresholds={thresholds}
-            />
-          </TabsContent>
-
-          <TabsContent value="saved" className="flex-1 m-0 p-6 bg-bg-deep">
+          <TabsContent value="saved" className="flex-1 m-0 pt-14 px-6 pb-6 bg-bg-deep">
             <div className="flex flex-col h-full gap-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-accent-primary">Saved for Follow-up</h2>
@@ -396,9 +387,9 @@ export default function App() {
                   Clear All
                 </Button>
               </div>
-              <CompoundTable 
-                compounds={savedCompounds} 
-                onSelect={setSelectedCompound} 
+              <CompoundTable
+                compounds={savedCompounds}
+                onSelect={setSelectedCompound}
                 smartsHighlight={smartsQuery}
                 thresholds={thresholds}
               />

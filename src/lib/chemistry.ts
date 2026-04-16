@@ -14,26 +14,11 @@ export function processSmiles(smiles: string): {
   try {
     const mol = OCL.Molecule.fromSmiles(smiles);
     
-    // Generate fingerprint (512 bits)
+    // Fingerprint — getIndex() returns OCL's 16-element Int32Array fragment index.
     const fpArray: number[] = [];
-    try {
-      // @ts-ignore
-      const fp = mol.getFingerprint();
-      if (fp) {
-        // OCL fingerprints can be Int32Array or similar
-        for (let i = 0; i < fp.length; i++) fpArray.push(Number(fp[i]));
-      }
-    } catch (e) {
-      // Fallback: simple hash of IDCode
-      // @ts-ignore
-      const idCode = mol.getIDCode();
-      let hash = 0;
-      for (let i = 0; i < idCode.length; i++) {
-        hash = ((hash << 5) - hash) + idCode.charCodeAt(i);
-        hash |= 0;
-      }
-      fpArray.push(hash);
-    }
+    // @ts-ignore
+    const fp = mol.getIndex() as ArrayLike<number>;
+    for (let i = 0; i < fp.length; i++) fpArray.push(Number(fp[i]));
 
     // Get Bemis-Murcko Scaffold
     let scaffoldSmiles = smiles;

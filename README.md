@@ -1,5 +1,8 @@
 # orbIC: A Multidimensional Chemical Space Navigation Platform
 
+https://github.com/user-attachments/assets/2225c4f7-13af-411c-88dc-603c47f8f59a
+
+
 ## Technical Overview
 `orbIC` is an open-source analytical framework designed to facilitate hit-to-lead and lead optimization phases in drug discovery. By leveraging force-directed graph algorithms and high-dimensional data mapping, the platform translates complex Structure-Activity Relationship (SAR) data into a navigable, "celestial" coordinate system.
 
